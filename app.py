@@ -6,17 +6,46 @@ import streamlit as st
 import yfinance as yf
 
 st.set_page_config(
-    page_title="High-Scale Quarterly Breakout & PEGY Radar",
+    page_title="Quarterly Catalyst & PEGY Radar",
     page_icon="⚡",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 st.title("⚡ Multi-Market Quarterly Breakout & PEGY Radar")
 st.caption(
-    "Batched institutional scanning engine across S&P 100, Nasdaq, &"
-    " Metals/Miners."
+    "Institutional scanning across S&P 100, Nasdaq-100 & Metals: Strat Inside"
+    " Bars + TTM Squeeze + Lynch PEGY."
 )
 
+# --- Visual Legend ---
+with st.expander(
+    "🎨 Color Legend & Reading Guide (What is Good vs. Not)", expanded=True
+):
+  col_l1, col_l2, col_l3, col_l4 = st.columns(4)
+  with col_l1:
+    st.markdown("**Setup Score / Grade**")
+    st.markdown("🟢 **80–100:** Prime A+ (High Confluence)")
+    st.markdown("🟡 **60–79:** Stage 2 Setup")
+    st.markdown("🔴 **< 60:** Low Probability / Watchlist")
+  with col_l2:
+    st.markdown("**PEGY / Valuation**")
+    st.markdown("🟢 **< 1.0:** Deep Bargain (Peter Lynch)")
+    st.markdown("🟡 **1.0–1.5:** Fair Compounding Zone")
+    st.markdown("🔴 **> 1.5:** Stretched / Overvalued")
+  with col_l3:
+    st.markdown("**Strat & Continuity**")
+    st.markdown("🟢 **1 (Inside Bar):** Coiled spring")
+    st.markdown("🟢 **2U (Bullish):** Active upside continuity")
+    st.markdown("🔴 **2D (Pullback):** Red monthly / trap risk")
+  with col_l4:
+    st.markdown("**Squeeze Status**")
+    st.markdown(
+        "🔥 **Active Squeeze:** Bollinger Bands inside Keltner (Coiling)"
+    )
+    st.markdown("⚪ **Standard:** Open / Normal expansion")
+
+# --- Preset Universes ---
 METALS_MINERS = [
     "GLD",
     "SLV",
@@ -40,16 +69,15 @@ METALS_MINERS = [
 ]
 
 
-# --- Ticker Resolvers with Wikipedia Scrapers + Offline Fallbacks ---
 @st.cache_data(ttl=86400)
 def load_sp100_tickers():
   try:
     tables = pd.read_html("https://en.wikipedia.org/wiki/S%26P_100")
-    df = tables[2] if len(tables) > 2 else tables[1]
-    col = "Symbol" if "Symbol" in df.columns else "Ticker"
+    df_sp = tables[2] if len(tables) > 2 else tables[1]
+    col = "Symbol" if "Symbol" in df_sp.columns else "Ticker"
     return [
         t.strip().upper()
-        for t in df[col].str.replace(".", "-", regex=False)
+        for t in df_sp[col].str.replace(".", "-", regex=False)
         if isinstance(t, str)
     ]
   except Exception:
@@ -76,11 +104,11 @@ def load_sp100_tickers():
 def load_nasdaq100_tickers():
   try:
     tables = pd.read_html("https://en.wikipedia.org/wiki/Nasdaq-100")
-    df = tables[4] if len(tables) > 4 else tables[3]
-    col = "Ticker" if "Ticker" in df.columns else "Symbol"
+    df_ndx = tables[4] if len(tables) > 4 else tables[3]
+    col = "Ticker" if "Ticker" in df_ndx.columns else "Symbol"
     return [
         t.strip().upper()
-        for t in df[col].str.replace(".", "-", regex=False)
+        for t in df_ndx[col].str.replace(".", "-", regex=False)
         if isinstance(t, str)
     ]
   except Exception:
@@ -104,21 +132,21 @@ def load_nasdaq100_tickers():
     ]
 
 
-# --- Sidebar Selection ---
+# --- Sidebar Controls ---
 st.sidebar.header("🎯 Universe Selection")
-inc_sp = st.sidebar.checkbox("S&P 100 Large-Caps", value=True)
-inc_ndx = st.sidebar.checkbox("Nasdaq Growth / Tech", value=True)
-inc_metals = st.sidebar.checkbox("Metals, Miners & Commodities", value=True)
+include_sp100 = st.sidebar.checkbox("S&P 100 Large-Caps", value=True)
+include_ndx = st.sidebar.checkbox("Nasdaq-100 Growth / Tech", value=True)
+include_metals = st.sidebar.checkbox("Metals & Commodities", value=True)
 custom_extra = st.sidebar.text_input(
     "Add Custom Tickers", value="FORM, ONTO, COHU, PLTR, URI"
 )
 
 selected_universe = set()
-if inc_sp:
+if include_sp100:
   selected_universe.update(load_sp100_tickers())
-if inc_ndx:
+if include_ndx:
   selected_universe.update(load_nasdaq100_tickers())
-if inc_metals:
+if include_metals:
   selected_universe.update(METALS_MINERS)
 if custom_extra:
   for t in custom_extra.split(","):
@@ -126,17 +154,17 @@ if custom_extra:
       selected_universe.add(t.strip().upper())
 
 universe_list = sorted(list(selected_universe))
-st.sidebar.markdown(f"**Total Active Watchlist:** `{len(universe_list)}` names")
+st.sidebar.markdown(f"**Total Monitored:** `{len(universe_list)}` tickers")
 
+st.sidebar.markdown("---")
+st.sidebar.header("⚡ Filters")
 min_score = st.sidebar.slider("Min Setup Score", 0, 100, 50, 5)
-filter_squeeze = st.sidebar.checkbox("Active Daily Squeeze Only", value=False)
+filter_squeeze = st.sidebar.checkbox("Active Squeeze Only", value=False)
 filter_inside = st.sidebar.checkbox("Monthly '1' Inside Bar Only", value=False)
-filter_ftc = st.sidebar.checkbox(
-    "Full Timeframe Continuity UP Only", value=False
-)
+filter_ftc = st.sidebar.checkbox("Monthly FTC UP Only", value=False)
 
 
-# --- High-Speed Vectorized Scanner ---
+# --- Data Pipeline ---
 @st.cache_data(ttl=1800)
 def fetch_info(ticker):
   try:
@@ -159,7 +187,9 @@ def fetch_info(ticker):
 
 @st.cache_data(ttl=1800)
 def run_scan(tickers):
-  # 1. Batch download daily & monthly price arrays in parallel
+  if not tickers:
+    return pd.DataFrame()
+
   df_daily = yf.download(
       tickers,
       period="1y",
@@ -179,7 +209,6 @@ def run_scan(tickers):
       progress=False,
   )
 
-  # 2. Concurrently fetch fundamental data
   fundamentals = {}
   with ThreadPoolExecutor(max_workers=20) as executor:
     futures = {executor.submit(fetch_info, t): t for t in tickers}
@@ -207,14 +236,13 @@ def run_scan(tickers):
       close_d = d["Close"]
       price = close_d.iloc[-1]
 
-      # Moving Averages & Trend
       sma50 = close_d.rolling(50).mean().iloc[-1]
       sma200 = (
           close_d.rolling(200).mean().iloc[-1] if len(d) >= 200 else sma50
       )
       ema21 = close_d.ewm(span=21, adjust=False).mean().iloc[-1]
 
-      # Volatility Squeeze (20-day BB vs 20-day KC)
+      # Volatility Squeeze
       bb_mid = close_d.rolling(20).mean()
       bb_std = close_d.rolling(20).std()
       bb_upper = bb_mid + (2 * bb_std)
@@ -233,7 +261,6 @@ def run_scan(tickers):
           bb_upper.iloc[-1] < kc_upper.iloc[-1]
       )
 
-      # Monthly Strat & FTC
       curr_m, prev_m = m.iloc[-1], m.iloc[-2]
       ftc_up = curr_m["Close"] > curr_m["Open"]
       inside = (curr_m["High"] <= prev_m["High"]) and (
@@ -249,7 +276,6 @@ def run_scan(tickers):
           )
       )
 
-      # Valuation & PEGY Calculation
       f = fundamentals.get(t, {})
       pe, peg, dy = f.get("pe"), f.get("peg"), f.get("yield", 0.0)
       pegy = np.nan
@@ -258,7 +284,7 @@ def run_scan(tickers):
         if (growth + dy) > 0:
           pegy = pe / (growth + dy)
 
-      # Score Engine (0-100)
+      # Score Engine
       score = 0
       if price > sma200:
         score += 10
@@ -288,35 +314,10 @@ def run_scan(tickers):
           "Sector": f.get("sector", "Other"),
           "Price": round(price, 2),
           "Score": int(score),
-          "Squeeze": "🔥 Squeeze" if is_squeezed else "Standard",
+          "Squeeze": "🔥 SQUEEZE" if is_squeezed else "Standard",
           "Monthly Strat": strat,
           "Monthly FTC": "Bullish 🟢" if ftc_up else "Bearish 🔴",
-          "P/E": round(pe, 1) if pd.notnull(pe) else "-",
-          "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else "-",
-          "Standard PEG": round(peg, 2) if pd.notnull(peg) else "-",
-          "Yield (%)": f"{round(dy, 2)}%" if dy > 0 else "-",
-      })
-    except Exception:
-      continue
-
-  return pd.DataFrame(results)
-
-
-# --- Execute Scan ---
-with st.spinner(f"Scanning {len(universe_list)} institutional names..."):
-  df = run_scan(universe_list)
-
-if not df.empty:
-  out = df[df["Score"] >= min_score]
-  if filter_squeeze:
-    out = out[out["Squeeze"] == "🔥 Squeeze"]
-  if filter_inside:
-    out = out[out["Monthly Strat"] == "1 (Inside Coil)"]
-  if filter_ftc:
-    out = out[out["Monthly FTC"] == "Bullish 🟢"]
-
-  st.dataframe(
-      out.sort_values(by="Score", ascending=False),
-      use_container_width=True,
-      hide_index=True,
-  )
+          "P/E": round(pe, 1) if pd.notnull(pe) else np.nan,
+          "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else np.nan,
+          "Standard PEG": round(peg, 2) if pd.notnull(peg) else np.nan,
+          "Yield (%)": round(dy, 2)
