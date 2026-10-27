@@ -27,37 +27,55 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.title("⚡ Multi-Market Quarterly Breakout & PEGY Radar")
+st.title("⚡ Multi-Market Quarterly Breakout & Trade Tier Radar")
 st.caption(
-    "Institutional scanning across S&P 100, Nasdaq-100 & Metals: Strat Inside"
-    " Bars + TTM Squeeze + Lynch PEGY."
+    "Automated Tier Filtering: Prime Growth vs. Slow Clunkers vs. Cyclical Value"
+    " Traps + Implied Growth & Beta."
 )
 
 with st.expander(
-    "🎨 Color Legend & Reading Guide (What is Good vs. Not)", expanded=True
+    "🎓 How the Dashboard Classifies Tiers (Never Guess Again)", expanded=True
 ):
-  col_l1, col_l2, col_l3, col_l4 = st.columns(4)
-  with col_l1:
-    st.markdown("**Setup Score / Grade**")
-    st.markdown("🟢 **80–100:** Prime A+ (High Confluence)")
-    st.markdown("🟡 **60–79:** Stage 2 Setup")
-    st.markdown("🔴 **< 60:** Low Probability / Watchlist")
-  with col_l2:
-    st.markdown("**PEGY / Valuation**")
-    st.markdown("🟢 **< 1.0:** Deep Bargain (Peter Lynch)")
-    st.markdown("🟡 **1.0–1.5:** Fair Compounding Zone")
-    st.markdown("🔴 **> 1.5:** Stretched / Overvalued")
-  with col_l3:
-    st.markdown("**Strat & Continuity**")
-    st.markdown("🟢 **1 (Inside Bar):** Coiled spring")
-    st.markdown("🟢 **2U (Bullish):** Active upside continuity")
-    st.markdown("🔴 **2D (Pullback):** Red monthly / trap risk")
-  with col_l4:
-    st.markdown("**Squeeze Status**")
+  col_t1, col_t2, col_t3 = st.columns(3)
+  with col_t1:
+    st.markdown("### 🏆 Tier 1: Prime Compounders")
     st.markdown(
-        "🔥 **Active Squeeze:** Bollinger Bands inside Keltner (Coiling)"
+        "**What it is:** High-quality secular growth, wide moats, and real"
+        " earnings velocity."
     )
-    st.markdown("⚪ **Standard:** Open / Normal expansion")
+    st.markdown(
+        "• **Rules:** PEG < 1.1 **AND** Implied Growth > 10% **AND** Beta >="
+        " 0.80."
+    )
+    st.markdown(
+        "• **Action:** Immediate candidates for 60–90 DTE In-Out Call Debit"
+        " Spreads."
+    )
+  with col_t2:
+    st.markdown("### 🐢 Tier 2: Slow Clunkers / Yield Drag")
+    st.markdown(
+        "**What it is:** Low beta, slow-moving dividend payers where dividend"
+        " carries the entire valuation."
+    )
+    st.markdown("• **Rules:** Implied Growth < 8% **OR** Beta < 0.70.")
+    st.markdown(
+        "• **Action:** Skip for active quarterly swing trades; price takes too"
+        " long to expand."
+    )
+  with col_t3:
+    st.markdown("### ⚠️ Tier 3: Cyclical / Value Traps")
+    st.markdown(
+        "**What it is:** Steel, energy, or miners showing fake cheap P/E at"
+        " cyclical tops."
+    )
+    st.markdown(
+        "• **Rules:** Highly cyclical sector / commodity price-takers (CLF,"
+        " NUE, FCX)."
+    )
+    st.markdown(
+        "• **Action:** Avoid unless macro underlying spot commodity is"
+        " exploding."
+    )
 
 METALS_MINERS = [
     "GLD",
@@ -333,7 +351,16 @@ universe_list = sorted(list(selected_universe))
 st.sidebar.markdown(f"**Total Monitored:** `{len(universe_list)}` tickers")
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚡ Filters")
+st.sidebar.header("⚡ Actionable Tier Filters")
+tier_filter = st.sidebar.multiselect(
+    "Filter by Trade Tier",
+    [
+        "🏆 Tier 1 (Prime Setup)",
+        "🐢 Tier 2 (Slow Clunker)",
+        "⚠️ Tier 3 (Cyclical Trap)",
+    ],
+    default=["🏆 Tier 1 (Prime Setup)"],
+)
 min_score = st.sidebar.slider("Min Setup Score", 0, 100, 50, 5)
 filter_squeeze = st.sidebar.checkbox("Active Squeeze Only", value=False)
 filter_inside = st.sidebar.checkbox("Monthly '1' Inside Bar Only", value=False)
@@ -347,17 +374,31 @@ def fetch_info(ticker):
     fwd_pe = info.get("forwardPE", np.nan)
     trail_pe = info.get("trailingPE", np.nan)
     peg = info.get("pegRatio", np.nan)
+    beta = info.get("beta", 1.0)
+    payout = (info.get("payoutRatio") or 0.0) * 100.0
+    rev_growth = (info.get("revenueGrowth") or 0.0) * 100.0
 
-    # Dynamic detection to prevent 100x yield bug
     raw_yield = info.get("dividendYield") or 0.0
     div_yield = raw_yield * 100.0 if raw_yield < 0.20 else raw_yield
 
     sector = (
         "Metals/ETF" if ticker in METALS_MINERS else info.get("sector", "Other")
     )
-    return ticker, fwd_pe, trail_pe, peg, div_yield, sector
+    industry = info.get("industry", "")
+    return (
+        ticker,
+        fwd_pe,
+        trail_pe,
+        peg,
+        div_yield,
+        beta,
+        payout,
+        rev_growth,
+        sector,
+        industry,
+    )
   except Exception:
-    return ticker, np.nan, np.nan, np.nan, 0.0, "Other"
+    return ticker, np.nan, np.nan, np.nan, 0.0, 1.0, 0.0, 0.0, "Other", ""
 
 
 @st.cache_data(ttl=1800)
@@ -388,12 +429,27 @@ def run_scan(tickers):
   with ThreadPoolExecutor(max_workers=20) as executor:
     futures = {executor.submit(fetch_info, t): t for t in tickers}
     for fut in as_completed(futures):
-      t, fwd_pe, trail_pe, peg, div_yield, sector = fut.result()
+      (
+          t,
+          fwd_pe,
+          trail_pe,
+          peg,
+          div_yield,
+          beta,
+          payout,
+          rev_growth,
+          sector,
+          industry,
+      ) = fut.result()
       fundamentals[t] = {
           "pe": fwd_pe if pd.notnull(fwd_pe) and fwd_pe > 0 else trail_pe,
           "peg": peg,
           "yield": div_yield,
+          "beta": beta if pd.notnull(beta) else 1.0,
+          "payout": payout,
+          "rev_growth": rev_growth,
           "sector": sector,
+          "industry": industry,
       }
 
   results = []
@@ -417,6 +473,7 @@ def run_scan(tickers):
       )
       ema21 = close_d.ewm(span=21, adjust=False).mean().iloc[-1]
 
+      # Volatility Squeeze
       bb_mid = close_d.rolling(20).mean()
       bb_std = close_d.rolling(20).std()
       bb_upper = bb_mid + (2 * bb_std)
@@ -455,14 +512,53 @@ def run_scan(tickers):
       pe = f.get("pe")
       peg = f.get("peg")
       dy = f.get("yield", 0.0)
+      beta = f.get("beta", 1.0)
+      sector = f.get("sector", "Other")
 
+      implied_growth = np.nan
       pegy = np.nan
       if pd.notnull(peg) and peg > 0 and pd.notnull(pe) and pe > 0:
-        growth = pe / peg
-        total_engine = growth + dy
-        if total_engine > 0:
-          pegy = pe / total_engine
+        implied_growth = pe / peg
+        tot_engine = implied_growth + dy
+        if tot_engine > 0:
+          pegy = pe / tot_engine
 
+      # AUTOMATED TIER CLASSIFICATION
+      is_cyclical = (
+          sector in ["Energy", "Basic Materials"]
+          or t in METALS_MINERS
+          or "Steel" in f.get("industry", "")
+          or "Mining" in f.get("industry", "")
+      )
+
+      if is_cyclical and t not in ["GLD", "SLV", "IAU"]:
+        tier = "⚠️ Tier 3 (Cyclical Trap)"
+        tier_reason = "Commodity Price-Taker / Cycle Peak Risk"
+      elif (pd.notnull(implied_growth) and implied_growth < 8.0) or (
+          beta < 0.70 and dy > 2.5
+      ):
+        tier = "🐢 Tier 2 (Slow Clunker)"
+        tier_reason = (
+            "Sluggish EPS Growth"
+            f" ({round(implied_growth, 1) if pd.notnull(implied_growth) else '-'}%)"
+            " / Low Beta"
+        )
+      elif (
+          (pd.notnull(pegy) and pegy <= 1.1)
+          or (pd.notnull(peg) and peg <= 1.1)
+          or (t in ["GLD", "SLV"] and ftc_up)
+      ):
+        tier = "🏆 Tier 1 (Prime Setup)"
+        tier_reason = (
+            f"EPS Velocity"
+            f" ({round(implied_growth, 1) if pd.notnull(implied_growth) else '-'}%)"
+            " + Deep Lynch Valuation"
+        )
+      else:
+        tier = "🐢 Tier 2 (Slow Clunker)"
+        tier_reason = "Average Multiple / Moderate Velocity"
+
+      # Score Engine
       score = 0
       if price > sma200:
         score += 10
@@ -488,17 +584,22 @@ def run_scan(tickers):
         score += 15 if ftc_up and price > sma50 else 5
 
       results.append({
+          "Tier": tier,
           "Ticker": t,
-          "Sector": f.get("sector", "Other"),
+          "Diagnosis / Warning": tier_reason,
+          "Sector": sector,
           "Price": round(price, 2),
           "Score": int(score),
           "Squeeze": "🔥 SQUEEZE" if is_squeezed else "Standard",
           "Monthly Strat": strat,
           "Monthly FTC": "Bullish 🟢" if ftc_up else "Bearish 🔴",
-          "P/E": round(pe, 1) if pd.notnull(pe) else np.nan,
+          "Implied Growth (%)": (
+              round(implied_growth, 1) if pd.notnull(implied_growth) else np.nan
+          ),
           "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else np.nan,
           "Standard PEG": round(peg, 2) if pd.notnull(peg) else np.nan,
           "Yield (%)": round(dy, 2) if dy > 0 else 0.0,
+          "Beta": round(beta, 2),
       })
     except Exception:
       continue
@@ -510,6 +611,8 @@ with st.spinner("Scanning universe across S&P 100, Nasdaq, & Metals..."):
 
 if not df.empty:
   filtered = df[df["Score"] >= min_score]
+  if tier_filter:
+    filtered = filtered[filtered["Tier"].isin(tier_filter)]
   if filter_squeeze:
     filtered = filtered[filtered["Squeeze"] == "🔥 SQUEEZE"]
   if filter_inside:
@@ -517,30 +620,49 @@ if not df.empty:
   if filter_ftc:
     filtered = filtered[filtered["Monthly FTC"] == "Bullish 🟢"]
 
-  filtered = filtered.sort_values(by="Score", ascending=False).reset_index(
-      drop=True
-  )
+  filtered = filtered.sort_values(
+      by=["Tier", "Score"], ascending=[True, False]
+  ).reset_index(drop=True)
 
   c1, c2, c3, c4 = st.columns(4)
   with c1:
-    st.metric("Active Matches", len(filtered))
+    st.metric("Filtered Candidates", len(filtered))
   with c2:
     st.metric(
-        "🚀 Prime A+ (Score >= 80)", len(filtered[filtered["Score"] >= 80])
+        "🏆 Prime Tier 1 Setups",
+        len(filtered[filtered["Tier"] == "🏆 Tier 1 (Prime Setup)"]),
     )
   with c3:
     st.metric(
-        "🔥 In Volatility Squeeze",
-        len(filtered[filtered["Squeeze"] == "🔥 SQUEEZE"]),
+        "🐢 Tier 2 Clunkers",
+        len(filtered[filtered["Tier"] == "🐢 Tier 2 (Slow Clunker)"]),
     )
   with c4:
     st.metric(
-        "💎 Deep Bargains (PEGY < 1.0)",
-        len(filtered[filtered["Lynch PEGY"] < 1.0]),
+        "⚠️ Tier 3 Cyclical Traps",
+        len(filtered[filtered["Tier"] == "⚠️ Tier 3 (Cyclical Trap)"]),
     )
 
+
   def style_breakout_table(val, col_type):
-    if col_type == "score":
+    if col_type == "tier":
+      if "Tier 1" in str(val):
+        return (
+            "background-color: rgba(0, 230, 118, 0.35); color: #00E676;"
+            " font-weight: bold; border-left: 4px solid #00E676;"
+        )
+      elif "Tier 2" in str(val):
+        return (
+            "background-color: rgba(255, 214, 0, 0.22); color: #FFD600;"
+            " font-weight: bold;"
+        )
+      elif "Tier 3" in str(val):
+        return (
+            "background-color: rgba(255, 82, 82, 0.25); color: #FF5252;"
+            " font-weight: bold; border-left: 4px solid #FF5252;"
+        )
+      return ""
+    elif col_type == "score":
       if val >= 80:
         return (
             "background-color: rgba(0, 230, 118, 0.28); color: #00E676;"
@@ -558,7 +680,7 @@ if not df.empty:
         return ""
       if val < 1.0:
         return (
-            "background-color: rgba(0, 230, 118, 0.28); color: #00E676;"
+            "background-color: rgba(0, 230, 118, 0.32); color: #00E676;"
             " font-weight: bold;"
         )
       elif val <= 1.5:
@@ -589,10 +711,12 @@ if not df.empty:
       return "background-color: rgba(255, 82, 82, 0.20); color: #FF5252;"
     return ""
 
+
   styled_df = (
       filtered.style.map(
-          lambda v: style_breakout_table(v, "score"), subset=["Score"]
+          lambda v: style_breakout_table(v, "tier"), subset=["Tier"]
       )
+      .map(lambda v: style_breakout_table(v, "score"), subset=["Score"])
       .map(
           lambda v: style_breakout_table(v, "pegy"),
           subset=["Lynch PEGY", "Standard PEG"],
@@ -603,14 +727,15 @@ if not df.empty:
       .format(
           {
               "Price": "${:.2f}",
-              "P/E": "{:.1f}x",
+              "Implied Growth (%)": "{:.1f}%",
               "Lynch PEGY": "{:.2f}",
               "Standard PEG": "{:.2f}",
               "Yield (%)": "{:.2f}%",
+              "Beta": "{:.2f}",
           },
           na_rep="-",
       )
   )
 
-  st.subheader("📊 Color-Coded Quarterly Breakout Radar")
+  st.subheader("📊 Trade Tier Intelligence Radar")
   st.dataframe(styled_df, use_container_width=True, height=650)
