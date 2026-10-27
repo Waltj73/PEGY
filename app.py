@@ -30,7 +30,7 @@ st.markdown(
 st.title("⚡ Multi-Market Quarterly Breakout & Trade Tier Radar")
 st.caption(
     "Automated Tier Filtering: Prime Growth vs. Slow Clunkers vs. Cyclical Value"
-    " Traps + Implied Growth & Beta."
+    " Traps + Implied EPS Velocity & Beta."
 )
 
 with st.expander(
@@ -44,8 +44,7 @@ with st.expander(
         " earnings velocity."
     )
     st.markdown(
-        "• **Rules:** PEG < 1.1 **AND** Implied Growth > 10% **AND** Beta >="
-        " 0.80."
+        "• **Rules:** PEG < 1.1 **AND** EPS Velocity > 10% **AND** Beta >= 0.80."
     )
     st.markdown(
         "• **Action:** Immediate candidates for 60–90 DTE In-Out Call Debit"
@@ -57,7 +56,7 @@ with st.expander(
         "**What it is:** Low beta, slow-moving dividend payers where dividend"
         " carries the entire valuation."
     )
-    st.markdown("• **Rules:** Implied Growth < 8% **OR** Beta < 0.70.")
+    st.markdown("• **Rules:** EPS Velocity < 8% **OR** Beta < 0.70.")
     st.markdown(
         "• **Action:** Skip for active quarterly swing trades; price takes too"
         " long to expand."
@@ -539,7 +538,7 @@ def run_scan(tickers):
       ):
         tier = "🐢 Tier 2 (Slow Clunker)"
         tier_reason = (
-            "Sluggish EPS Growth"
+            "Sluggish EPS Velocity"
             f" ({round(implied_growth, 1) if pd.notnull(implied_growth) else '-'}%)"
             " / Low Beta"
         )
@@ -550,13 +549,13 @@ def run_scan(tickers):
       ):
         tier = "🏆 Tier 1 (Prime Setup)"
         tier_reason = (
-            f"EPS Velocity"
+            f"Strong EPS Velocity"
             f" ({round(implied_growth, 1) if pd.notnull(implied_growth) else '-'}%)"
-            " + Deep Lynch Valuation"
+            " + Lynch Bargain"
         )
       else:
         tier = "🐢 Tier 2 (Slow Clunker)"
-        tier_reason = "Average Multiple / Moderate Velocity"
+        tier_reason = "Moderate EPS Velocity"
 
       # Score Engine
       score = 0
@@ -583,23 +582,24 @@ def run_scan(tickers):
       elif t in METALS_MINERS:
         score += 15 if ftc_up and price > sma50 else 5
 
+      # REORDERED FOR IMMEDIATE VISIBILITY
       results.append({
           "Tier": tier,
           "Ticker": t,
-          "Diagnosis / Warning": tier_reason,
-          "Sector": sector,
           "Price": round(price, 2),
+          "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else np.nan,
+          "Standard PEG": round(peg, 2) if pd.notnull(peg) else np.nan,
           "Score": int(score),
           "Squeeze": "🔥 SQUEEZE" if is_squeezed else "Standard",
           "Monthly Strat": strat,
           "Monthly FTC": "Bullish 🟢" if ftc_up else "Bearish 🔴",
-          "Implied Growth (%)": (
+          "EPS Velocity (%)": (
               round(implied_growth, 1) if pd.notnull(implied_growth) else np.nan
           ),
-          "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else np.nan,
-          "Standard PEG": round(peg, 2) if pd.notnull(peg) else np.nan,
           "Yield (%)": round(dy, 2) if dy > 0 else 0.0,
           "Beta": round(beta, 2),
+          "Sector": sector,
+          "Diagnosis / Warning": tier_reason,
       })
     except Exception:
       continue
@@ -642,7 +642,6 @@ if not df.empty:
         "⚠️ Tier 3 Cyclical Traps",
         len(filtered[filtered["Tier"] == "⚠️ Tier 3 (Cyclical Trap)"]),
     )
-
 
   def style_breakout_table(val, col_type):
     if col_type == "tier":
@@ -711,7 +710,6 @@ if not df.empty:
       return "background-color: rgba(255, 82, 82, 0.20); color: #FF5252;"
     return ""
 
-
   styled_df = (
       filtered.style.map(
           lambda v: style_breakout_table(v, "tier"), subset=["Tier"]
@@ -727,7 +725,7 @@ if not df.empty:
       .format(
           {
               "Price": "${:.2f}",
-              "Implied Growth (%)": "{:.1f}%",
+              "EPS Velocity (%)": "{:.1f}%",
               "Lynch PEGY": "{:.2f}",
               "Standard PEG": "{:.2f}",
               "Yield (%)": "{:.2f}%",
