@@ -344,18 +344,18 @@ filter_ftc = st.sidebar.checkbox("Monthly FTC UP Only", value=False)
 def fetch_info(ticker):
   try:
     info = yf.Ticker(ticker).info or {}
-    return (
-        ticker,
-        info.get("forwardPE", np.nan),
-        info.get("trailingPE", np.nan),
-        info.get("pegRatio", np.nan),
-        (info.get("dividendYield") or 0.0) * 100.0,
-        (
-            "Metals/ETF"
-            if ticker in METALS_MINERS
-            else info.get("sector", "Other")
-        ),
+    fwd_pe = info.get("forwardPE", np.nan)
+    trail_pe = info.get("trailingPE", np.nan)
+    peg = info.get("pegRatio", np.nan)
+
+    # Dynamic detection to prevent 100x yield bug
+    raw_yield = info.get("dividendYield") or 0.0
+    div_yield = raw_yield * 100.0 if raw_yield < 0.20 else raw_yield
+
+    sector = (
+        "Metals/ETF" if ticker in METALS_MINERS else info.get("sector", "Other")
     )
+    return ticker, fwd_pe, trail_pe, peg, div_yield, sector
   except Exception:
     return ticker, np.nan, np.nan, np.nan, 0.0, "Other"
 
@@ -455,11 +455,13 @@ def run_scan(tickers):
       pe = f.get("pe")
       peg = f.get("peg")
       dy = f.get("yield", 0.0)
+
       pegy = np.nan
       if pd.notnull(peg) and peg > 0 and pd.notnull(pe) and pe > 0:
         growth = pe / peg
-        if (growth + dy) > 0:
-          pegy = pe / (growth + dy)
+        total_engine = growth + dy
+        if total_engine > 0:
+          pegy = pe / total_engine
 
       score = 0
       if price > sma200:
