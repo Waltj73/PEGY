@@ -12,13 +12,27 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown(
+    """
+<style>
+    .metric-card {
+        background-color: #1E222D;
+        border-radius: 8px;
+        padding: 12px;
+        border-left: 4px solid #2962FF;
+        margin-bottom: 10px;
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 st.title("⚡ Multi-Market Quarterly Breakout & PEGY Radar")
 st.caption(
     "Institutional scanning across S&P 100, Nasdaq-100 & Metals: Strat Inside"
     " Bars + TTM Squeeze + Lynch PEGY."
 )
 
-# --- Visual Legend ---
 with st.expander(
     "🎨 Color Legend & Reading Guide (What is Good vs. Not)", expanded=True
 ):
@@ -45,7 +59,6 @@ with st.expander(
     )
     st.markdown("⚪ **Standard:** Open / Normal expansion")
 
-# --- Preset Universes ---
 METALS_MINERS = [
     "GLD",
     "SLV",
@@ -84,18 +97,100 @@ def load_sp100_tickers():
     return [
         "AAPL",
         "ABBV",
+        "ABT",
+        "ACN",
+        "ADBE",
+        "AIG",
         "AMD",
+        "AMGN",
         "AMZN",
         "AVGO",
+        "AXP",
+        "BA",
+        "BAC",
+        "BK",
+        "BKNG",
+        "BLK",
+        "BMY",
+        "C",
         "CAT",
+        "CL",
+        "CMCSA",
+        "COF",
         "COP",
+        "COST",
+        "CRM",
+        "CSCO",
+        "CVS",
         "CVX",
         "DE",
+        "DHR",
+        "DIS",
+        "DUK",
+        "EMR",
+        "FDX",
+        "GD",
+        "GE",
+        "GILD",
+        "GM",
+        "GOOG",
+        "GOOGL",
         "GS",
+        "HD",
+        "HON",
+        "IBM",
+        "INTC",
+        "INTU",
+        "JNJ",
         "JPM",
+        "KHC",
+        "KO",
+        "LIN",
+        "LLY",
+        "LMT",
+        "LOW",
+        "MA",
+        "MCD",
+        "MDLZ",
+        "MDT",
+        "MET",
         "META",
+        "MMM",
+        "MO",
+        "MRK",
+        "MS",
         "MSFT",
+        "NEE",
+        "NFLX",
+        "NKE",
         "NVDA",
+        "ORCL",
+        "PEP",
+        "PFE",
+        "PG",
+        "PM",
+        "PYPL",
+        "QCOM",
+        "RTX",
+        "SBUX",
+        "SCHW",
+        "SO",
+        "SPG",
+        "T",
+        "TGT",
+        "TJX",
+        "TMO",
+        "TMUS",
+        "TSLA",
+        "TXN",
+        "UNH",
+        "UNP",
+        "UPS",
+        "USB",
+        "V",
+        "VZ",
+        "WFC",
+        "WMT",
         "XOM",
     ]
 
@@ -114,25 +209,106 @@ def load_nasdaq100_tickers():
   except Exception:
     return [
         "AAPL",
+        "ABNB",
+        "ADBE",
+        "ADI",
+        "ADP",
+        "ADSK",
+        "AEP",
         "AMAT",
         "AMD",
+        "AMGN",
         "AMZN",
+        "ANSS",
         "APP",
         "ARM",
+        "ASML",
         "AVGO",
+        "AZN",
+        "BIIB",
+        "BKNG",
+        "BKR",
+        "CDNS",
+        "CEG",
+        "CHTR",
+        "CMCSA",
+        "COST",
+        "CPRT",
         "CRWD",
+        "CSCO",
+        "CSGP",
+        "CSX",
+        "CTAS",
+        "CTSH",
+        "DASH",
+        "DDOG",
+        "DLTR",
+        "DXCM",
+        "EA",
+        "EXC",
+        "FANG",
+        "FAST",
+        "FTNT",
+        "GEHC",
+        "GFS",
+        "GILD",
+        "GOOG",
         "GOOGL",
+        "HON",
+        "IDXX",
+        "ILMN",
+        "INTC",
+        "INTU",
+        "ISRG",
+        "KDP",
+        "KHC",
         "KLAC",
         "LRCX",
+        "LULU",
+        "MAR",
+        "MCHP",
+        "MDB",
+        "MDLZ",
+        "MELI",
         "META",
+        "MNST",
+        "MRNA",
+        "MRVL",
         "MSFT",
+        "MU",
+        "NFLX",
         "NVDA",
+        "NXPI",
+        "ODFL",
+        "ON",
+        "ORLY",
         "PANW",
+        "PAYX",
+        "PCAR",
+        "PDD",
+        "PEP",
+        "PYPL",
+        "QCOM",
+        "REGN",
+        "ROP",
+        "ROST",
+        "SBUX",
+        "SNPS",
+        "TEAM",
+        "TMUS",
         "TSLA",
+        "TTD",
+        "TTWO",
+        "TXN",
+        "VRSK",
+        "VRTX",
+        "WBD",
+        "WDAY",
+        "XEL",
+        "ZS",
     ]
 
 
-# --- Sidebar Controls ---
 st.sidebar.header("🎯 Universe Selection")
 include_sp100 = st.sidebar.checkbox("S&P 100 Large-Caps", value=True)
 include_ndx = st.sidebar.checkbox("Nasdaq-100 Growth / Tech", value=True)
@@ -164,7 +340,6 @@ filter_inside = st.sidebar.checkbox("Monthly '1' Inside Bar Only", value=False)
 filter_ftc = st.sidebar.checkbox("Monthly FTC UP Only", value=False)
 
 
-# --- Data Pipeline ---
 @st.cache_data(ttl=1800)
 def fetch_info(ticker):
   try:
@@ -242,7 +417,6 @@ def run_scan(tickers):
       )
       ema21 = close_d.ewm(span=21, adjust=False).mean().iloc[-1]
 
-      # Volatility Squeeze
       bb_mid = close_d.rolling(20).mean()
       bb_std = close_d.rolling(20).std()
       bb_upper = bb_mid + (2 * bb_std)
@@ -257,14 +431,15 @@ def run_scan(tickers):
       atr20 = tr.rolling(20).mean()
       kc_upper = bb_mid + (1.5 * atr20)
       kc_lower = bb_mid - (1.5 * atr20)
-      is_squeezed = (bb_lower.iloc[-1] > kc_lower.iloc[-1]) and (
-          bb_upper.iloc[-1] < kc_upper.iloc[-1]
+      is_squeezed = bool(
+          (bb_lower.iloc[-1] > kc_lower.iloc[-1])
+          and (bb_upper.iloc[-1] < kc_upper.iloc[-1])
       )
 
       curr_m, prev_m = m.iloc[-1], m.iloc[-2]
-      ftc_up = curr_m["Close"] > curr_m["Open"]
-      inside = (curr_m["High"] <= prev_m["High"]) and (
-          curr_m["Low"] >= prev_m["Low"]
+      ftc_up = bool(curr_m["Close"] > curr_m["Open"])
+      inside = bool(
+          (curr_m["High"] <= prev_m["High"]) and (curr_m["Low"] >= prev_m["Low"])
       )
       strat = (
           "1 (Inside Coil)"
@@ -277,14 +452,15 @@ def run_scan(tickers):
       )
 
       f = fundamentals.get(t, {})
-      pe, peg, dy = f.get("pe"), f.get("peg"), f.get("yield", 0.0)
+      pe = f.get("pe")
+      peg = f.get("peg")
+      dy = f.get("yield", 0.0)
       pegy = np.nan
       if pd.notnull(peg) and peg > 0 and pd.notnull(pe) and pe > 0:
         growth = pe / peg
         if (growth + dy) > 0:
           pegy = pe / (growth + dy)
 
-      # Score Engine
       score = 0
       if price > sma200:
         score += 10
@@ -320,4 +496,119 @@ def run_scan(tickers):
           "P/E": round(pe, 1) if pd.notnull(pe) else np.nan,
           "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else np.nan,
           "Standard PEG": round(peg, 2) if pd.notnull(peg) else np.nan,
-          "Yield (%)": round(dy, 2)
+          "Yield (%)": round(dy, 2) if dy > 0 else 0.0,
+      })
+    except Exception:
+      continue
+  return pd.DataFrame(results)
+
+
+with st.spinner("Scanning universe across S&P 100, Nasdaq, & Metals..."):
+  df = run_scan(universe_list)
+
+if not df.empty:
+  filtered = df[df["Score"] >= min_score]
+  if filter_squeeze:
+    filtered = filtered[filtered["Squeeze"] == "🔥 SQUEEZE"]
+  if filter_inside:
+    filtered = filtered[filtered["Monthly Strat"] == "1 (Inside Coil)"]
+  if filter_ftc:
+    filtered = filtered[filtered["Monthly FTC"] == "Bullish 🟢"]
+
+  filtered = filtered.sort_values(by="Score", ascending=False).reset_index(
+      drop=True
+  )
+
+  c1, c2, c3, c4 = st.columns(4)
+  with c1:
+    st.metric("Active Matches", len(filtered))
+  with c2:
+    st.metric(
+        "🚀 Prime A+ (Score >= 80)", len(filtered[filtered["Score"] >= 80])
+    )
+  with c3:
+    st.metric(
+        "🔥 In Volatility Squeeze",
+        len(filtered[filtered["Squeeze"] == "🔥 SQUEEZE"]),
+    )
+  with c4:
+    st.metric(
+        "💎 Deep Bargains (PEGY < 1.0)",
+        len(filtered[filtered["Lynch PEGY"] < 1.0]),
+    )
+
+  def style_breakout_table(val, col_type):
+    if col_type == "score":
+      if val >= 80:
+        return (
+            "background-color: rgba(0, 230, 118, 0.28); color: #00E676;"
+            " font-weight: bold;"
+        )
+      elif val >= 60:
+        return (
+            "background-color: rgba(255, 214, 0, 0.22); color: #FFD600;"
+            " font-weight: bold;"
+        )
+      else:
+        return "background-color: rgba(255, 82, 82, 0.20); color: #FF5252;"
+    elif col_type == "pegy":
+      if pd.isna(val) or val <= 0:
+        return ""
+      if val < 1.0:
+        return (
+            "background-color: rgba(0, 230, 118, 0.28); color: #00E676;"
+            " font-weight: bold;"
+        )
+      elif val <= 1.5:
+        return "background-color: rgba(255, 214, 0, 0.22); color: #FFD600;"
+      else:
+        return "background-color: rgba(255, 82, 82, 0.20); color: #FF5252;"
+    elif col_type == "squeeze":
+      if "SQUEEZE" in str(val):
+        return (
+            "background-color: rgba(255, 145, 0, 0.35); color: #FF9100;"
+            " font-weight: bold;"
+        )
+      return "color: #888888;"
+    elif col_type == "strat":
+      if "1" in str(val):
+        return (
+            "background-color: rgba(0, 230, 118, 0.25); color: #00E676;"
+            " font-weight: bold;"
+        )
+      elif "2U" in str(val):
+        return "color: #00E676; font-weight: bold;"
+      elif "2D" in str(val):
+        return "color: #FF5252;"
+      return ""
+    elif col_type == "ftc":
+      if "Bullish" in str(val):
+        return "background-color: rgba(0, 230, 118, 0.20); color: #00E676;"
+      return "background-color: rgba(255, 82, 82, 0.20); color: #FF5252;"
+    return ""
+
+  styled_df = (
+      filtered.style.map(
+          lambda v: style_breakout_table(v, "score"), subset=["Score"]
+      )
+      .map(
+          lambda v: style_breakout_table(v, "pegy"),
+          subset=["Lynch PEGY", "Standard PEG"],
+      )
+      .map(lambda v: style_breakout_table(v, "squeeze"), subset=["Squeeze"])
+      .map(lambda v: style_breakout_table(v, "strat"), subset=["Monthly Strat"])
+      .map(lambda v: style_breakout_table(v, "ftc"), subset=["Monthly FTC"])
+      .format(
+          {
+              "Price": "${:.2f}",
+              "P/E": "{:.1f}x",
+              "Lynch PEGY": "{:.2f}",
+              "Standard PEG": "{:.2f}",
+              "Yield (%)": "{:.2f}%",
+          },
+          na_rep="-",
+      )
+  )
+
+  st.subheader("📊 Color-Coded Quarterly Breakout Radar")
+  st.dataframe(styled_df, use_container_width=True, height=650)
