@@ -6,7 +6,7 @@ import streamlit as st
 import yfinance as yf
 
 st.set_page_config(
-    page_title="Quarterly Catalyst & PEGY Radar",
+    page_title="Monthly OTM Breakout Radar",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -22,53 +22,55 @@ st.markdown(
         border-left: 4px solid #2962FF;
         margin-bottom: 12px;
     }
-    .deep-dive-box {
-        background-color: #131722;
-        border-radius: 10px;
-        padding: 20px;
-        border: 1px solid #2A2E39;
-        margin-top: 15px;
-    }
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-st.title("⚡ Multi-Market Quarterly Breakout & Trade Tier Radar")
+st.title("⚡ Monthly OTM Breakout & Probability Radar")
 st.caption(
-    "Automated Tier Filtering: Prime Growth vs. Slow Clunkers vs. Cyclical Value"
-    " Traps + Single Ticker Deep-Dive."
+    "Active 20–35 DTE Swing Scanner: Weekly Coils + High Implied Velocity +"
+    " Asymmetric OTM Call Debit Architecture."
 )
 
 with st.expander(
-    "🎓 How the Dashboard Classifies Tiers (Never Guess Again)", expanded=False
+    "🎓 The OTM Debit Spread Blueprint (High-R:R Monthly Model)", expanded=False
 ):
   col_t1, col_t2, col_t3 = st.columns(3)
   with col_t1:
-    st.markdown("### 🏆 Tier 1: Prime Compounders")
+    st.markdown("### 🎯 Strike Architecture")
     st.markdown(
-        "• **Rules:** PEG < 1.1 **AND** EPS Velocity > 10% **AND** Beta >= 0.80."
+        "• **Buy Long Call:** ~40–45 Delta (First OTM strike right at breakout"
+        " resistance)."
     )
     st.markdown(
-        "• **Action:** Immediate candidates for 60–90 DTE In-Out Call Debit"
-        " Spreads."
+        "• **Sell Short Call:** ~20–25 Delta (Next technical target or 1"
+        " Expected Move away)."
+    )
+    st.markdown(
+        "• **Cost Target:** 25%–35% of spread width (Yielding **2:1 to 3:1"
+        " R:R**)."
     )
   with col_t2:
-    st.markdown("### 🐢 Tier 2: Slow Clunkers / Yield Drag")
-    st.markdown("• **Rules:** EPS Velocity < 8% **OR** Beta < 0.70.")
+    st.markdown("### ⏱️ Timeframe Alignment")
+    st.markdown("• **Duration:** 21 to 35 DTE (Front monthly expiration).")
     st.markdown(
-        "• **Action:** Skip for active quarterly swing trades; price takes too"
-        " long to expand."
+        "• **Anchor:** Weekly Strat `1` or `2U` in line with **Monthly Bullish"
+        " FTC**."
+    )
+    st.markdown(
+        "• **Velocity Requirement:** EPS Velocity > 15% (Ensures real momentum"
+        " drivers)."
     )
   with col_t3:
-    st.markdown("### ⚠️ Tier 3: Cyclical / Value Traps")
+    st.markdown("### 🛑 Trade Management")
     st.markdown(
-        "• **Rules:** Highly cyclical sector / commodity price-takers (CLF,"
-        " NUE, FCX)."
+        "• **Exit at 100%–150% Profit:** Don't hold to max expiration; harvest"
+        " early when Delta expands."
     )
     st.markdown(
-        "• **Action:** Avoid unless macro underlying spot commodity is"
-        " exploding."
+        "• **Stop-Loss:** Daily close below the rising 8 or 21 EMA cuts the"
+        " trade at a defined 40%–50% debit loss."
     )
 
 METALS_MINERS = [
@@ -345,7 +347,7 @@ universe_list = sorted(list(selected_universe))
 st.sidebar.markdown(f"**Total Monitored:** `{len(universe_list)}` tickers")
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚡ Actionable Tier Filters")
+st.sidebar.header("⚡ Monthly Filters")
 tier_filter = st.sidebar.multiselect(
     "Filter by Trade Tier",
     [
@@ -356,9 +358,11 @@ tier_filter = st.sidebar.multiselect(
     default=["🏆 Tier 1 (Prime Setup)"],
 )
 min_score = st.sidebar.slider("Min Setup Score", 0, 100, 50, 5)
-filter_squeeze = st.sidebar.checkbox("Active Squeeze Only", value=False)
-filter_inside = st.sidebar.checkbox("Monthly '1' Inside Bar Only", value=False)
-filter_ftc = st.sidebar.checkbox("Monthly FTC UP Only", value=False)
+min_velocity = st.sidebar.slider("Min EPS Velocity (%)", 0, 50, 15, 5)
+filter_weekly_inside = st.sidebar.checkbox(
+    "Weekly '1' Inside Coil Only", value=False
+)
+filter_squeeze = st.sidebar.checkbox("Active Daily Squeeze Only", value=False)
 
 
 @st.cache_data(ttl=1800)
@@ -429,6 +433,15 @@ def run_scan(tickers):
       threads=True,
       progress=False,
   )
+  df_weekly = yf.download(
+      tickers,
+      period="2y",
+      interval="1wk",
+      group_by="ticker",
+      auto_adjust=True,
+      threads=True,
+      progress=False,
+  )
   df_monthly = yf.download(
       tickers,
       period="2y",
@@ -478,12 +491,18 @@ def run_scan(tickers):
   for t in tickers:
     try:
       d = df_daily[t].dropna(subset=["Close"]) if len(tickers) > 1 else df_daily
+      w = (
+          df_weekly[t].dropna(subset=["Close"])
+          if len(tickers) > 1
+          else df_weekly
+      )
       m = (
           df_monthly[t].dropna(subset=["Close"])
           if len(tickers) > 1
           else df_monthly
       )
-      if len(d) < 50 or len(m) < 3:
+
+      if len(d) < 50 or len(w) < 4 or len(m) < 3:
         continue
 
       close_d = d["Close"]
@@ -495,8 +514,10 @@ def run_scan(tickers):
       sma200 = (
           close_d.rolling(200).mean().iloc[-1] if len(d) >= 200 else sma50
       )
+      ema8 = close_d.ewm(span=8, adjust=False).mean().iloc[-1]
       ema21 = close_d.ewm(span=21, adjust=False).mean().iloc[-1]
 
+      # Volatility Squeeze
       bb_mid = close_d.rolling(20).mean()
       bb_std = close_d.rolling(20).std()
       bb_upper = bb_mid + (2 * bb_std)
@@ -508,27 +529,39 @@ def run_scan(tickers):
           (low_d - close_d.shift(1)).abs(),
       ],
                      axis=1).max(axis=1)
-      atr20 = tr.rolling(20).mean()
-      kc_upper = bb_mid + (1.5 * atr20)
-      kc_lower = bb_mid - (1.5 * atr20)
+      atr20 = tr.rolling(20).mean().iloc[-1]
+      kc_upper = bb_mid + (1.5 * tr.rolling(20).mean())
+      kc_lower = bb_mid - (1.5 * tr.rolling(20).mean())
       is_squeezed = bool(
           (bb_lower.iloc[-1] > kc_lower.iloc[-1])
           and (bb_upper.iloc[-1] < kc_upper.iloc[-1])
       )
 
-      curr_m, prev_m = m.iloc[-1], m.iloc[-2]
-      ftc_up = bool(curr_m["Close"] > curr_m["Open"])
-      inside = bool(
-          (curr_m["High"] <= prev_m["High"]) and (curr_m["Low"] >= prev_m["Low"])
+      # Weekly Strat Structure (For Monthly Timelines)
+      curr_w, prev_w = w.iloc[-1], w.iloc[-2]
+      weekly_inside = bool(
+          (curr_w["High"] <= prev_w["High"]) and (curr_w["Low"] >= prev_w["Low"])
       )
-      strat = (
+      weekly_strat = (
           "1 (Inside Coil)"
-          if inside
+          if weekly_inside
           else (
-              "2U (Continuation)"
-              if curr_m["High"] > prev_m["High"]
+              "2U (Breakout)"
+              if curr_w["High"] > prev_w["High"]
               else "2D (Pullback)"
           )
+      )
+
+      # Monthly Strat & FTC (Anchor)
+      curr_m, prev_m = m.iloc[-1], m.iloc[-2]
+      m_ftc_up = bool(curr_m["Close"] > curr_m["Open"])
+      m_strat = (
+          "1 (Inside)"
+          if bool(
+              (curr_m["High"] <= prev_m["High"])
+              and (curr_m["Low"] >= prev_m["Low"])
+          )
+          else ("2U" if curr_m["High"] > prev_m["High"] else "2D")
       )
 
       f = fundamentals.get(t, {})
@@ -545,6 +578,40 @@ def run_scan(tickers):
         tot_engine = implied_growth + dy
         if tot_engine > 0:
           pegy = pe / tot_engine
+
+      # 30-Day Expected Move & Implied Volatility Proxy
+      returns = close_d.pct_change().dropna()
+      hist_vol = (
+          returns.iloc[-30:].std() * np.sqrt(252)
+          if len(returns) >= 30
+          else 0.30
+      )
+      em_30d = price * hist_vol * np.sqrt(30 / 365)
+
+      # OTM Strike Calculations (~42 Delta Long / ~22 Delta Short)
+      otm_long_strike = (
+          round((price + (0.35 * em_30d)) / 2.5) * 2.5
+          if price < 100
+          else round((price + (0.35 * em_30d)) / 5.0) * 5.0
+      )
+      if otm_long_strike <= price:
+        otm_long_strike = price + 2.5 if price < 100 else price + 5.0
+
+      otm_short_strike = (
+          round((price + (1.0 * em_30d)) / 2.5) * 2.5
+          if price < 100
+          else round((price + (1.0 * em_30d)) / 5.0) * 5.0
+      )
+      if otm_short_strike <= otm_long_strike:
+        otm_short_strike = otm_long_strike + 5.0
+
+      # Probability of Touching Long Strike
+      prob_touch_long = (
+          min(85, int(round((1 - (otm_long_strike - price) / em_30d) * 50 + 40)))
+          if em_30d > 0
+          else 50
+      )
+      prob_touch_long = max(35, prob_touch_long)
 
       is_cyclical = (
           sector in ["Energy", "Basic Materials"]
@@ -563,12 +630,11 @@ def run_scan(tickers):
         tier_reason = (
             "Sluggish EPS Velocity"
             f" ({round(implied_growth, 1) if pd.notnull(implied_growth) else '-'}%)"
-            " / Low Beta"
         )
       elif (
           (pd.notnull(pegy) and pegy <= 1.1)
           or (pd.notnull(peg) and peg <= 1.1)
-          or (t in ["GLD", "SLV"] and ftc_up)
+          or (t in ["GLD", "SLV"] and m_ftc_up)
       ):
         tier = "🏆 Tier 1 (Prime Setup)"
         tier_reason = (
@@ -578,8 +644,9 @@ def run_scan(tickers):
         )
       else:
         tier = "🐢 Tier 2 (Slow Clunker)"
-        tier_reason = "Moderate EPS Velocity"
+        tier_reason = "Moderate Velocity"
 
+      # Score Engine
       score = 0
       if price > sma200:
         score += 10
@@ -587,11 +654,11 @@ def run_scan(tickers):
         score += 10
       if price > ema21:
         score += 10
-      if ftc_up:
+      if m_ftc_up:
         score += 15
-      if inside:
+      if weekly_inside:
         score += 15
-      elif strat == "2U (Continuation)":
+      elif weekly_strat == "2U (Breakout)":
         score += 10
       if is_squeezed:
         score += 20
@@ -602,9 +669,8 @@ def run_scan(tickers):
       elif pd.notnull(metric) and metric <= 1.5:
         score += 10
       elif t in METALS_MINERS:
-        score += 15 if ftc_up and price > sma50 else 5
+        score += 15 if m_ftc_up and price > sma50 else 5
 
-      # Save full technical and fundamental record for the dossier
       deep_dive_records[t] = {
           "name": f.get("short_name", t),
           "tier": tier,
@@ -616,59 +682,73 @@ def run_scan(tickers):
           "yield": dy,
           "velocity": implied_growth,
           "score": score,
-          "strat": strat,
-          "ftc": "Bullish 🟢" if ftc_up else "Bearish 🔴",
+          "weekly_strat": weekly_strat,
+          "monthly_strat": m_strat,
+          "ftc": "Bullish 🟢" if m_ftc_up else "Bearish 🔴",
           "squeeze": is_squeezed,
           "sma50": sma50,
           "sma200": sma200,
+          "ema8": ema8,
           "ema21": ema21,
           "beta": beta,
-          "payout": f.get("payout", 0.0),
-          "profit_margins": f.get("profit_margins", 0.0),
-          "fcf": f.get("free_cashflow", 0),
+          "hist_vol": hist_vol * 100,
+          "em_30d": em_30d,
+          "long_strike": otm_long_strike,
+          "short_strike": otm_short_strike,
+          "prob_touch": prob_touch_long,
           "sector": sector,
           "industry": f.get("industry", ""),
-          "prior_m_high": prev_m["High"],
-          "prior_m_low": prev_m["Low"],
-          "curr_m_open": curr_m["Open"],
+          "prev_w_high": prev_w["High"],
+          "prev_w_low": prev_w["Low"],
       }
 
       results.append({
           "Tier": tier,
           "Ticker": t,
           "Price": round(price, 2),
+          "OTM Long Strike": round(otm_long_strike, 1),
+          "OTM Short Strike": round(otm_short_strike, 1),
+          "Est. Prob Touch (%)": f"{prob_touch_long}%",
           "Lynch PEGY": round(pegy, 2) if pd.notnull(pegy) else np.nan,
-          "Standard PEG": round(peg, 2) if pd.notnull(peg) else np.nan,
-          "Score": int(score),
-          "Squeeze": "🔥 SQUEEZE" if is_squeezed else "Standard",
-          "Monthly Strat": strat,
-          "Monthly FTC": "Bullish 🟢" if ftc_up else "Bearish 🔴",
           "EPS Velocity (%)": (
               round(implied_growth, 1) if pd.notnull(implied_growth) else np.nan
           ),
-          "Yield (%)": round(dy, 2) if dy > 0 else 0.0,
+          "Score": int(score),
+          "Squeeze": "🔥 SQUEEZE" if is_squeezed else "Standard",
+          "Weekly Strat": weekly_strat,
+          "Monthly FTC": "Bullish 🟢" if m_ftc_up else "Bearish 🔴",
           "Beta": round(beta, 2),
           "Sector": sector,
           "Diagnosis / Warning": tier_reason,
       })
     except Exception:
       continue
+
   return pd.DataFrame(results), deep_dive_records
 
 
-with st.spinner("Scanning universe across S&P 100, Nasdaq, & Metals..."):
+with st.spinner(
+    "Scanning universe across S&P 100, Nasdaq, & Metals for monthly OTM"
+    " breakout setups..."
+):
   df, deep_dive_data = run_scan(universe_list)
 
 if not df.empty:
   filtered = df[df["Score"] >= min_score]
   if tier_filter:
     filtered = filtered[filtered["Tier"].isin(tier_filter)]
+  if min_velocity > 0:
+    filtered = filtered[
+        (
+            pd.to_numeric(filtered["EPS Velocity (%)"], errors="coerce")
+            >= min_velocity
+        )
+        | (filtered["Sector"].str.contains("Metals", na=False))
+    ]
+  if filter_weekly_inside:
+    filtered = filtered[filtered["Weekly Strat"] == "1 (Inside Coil)"]
   if filter_squeeze:
     filtered = filtered[filtered["Squeeze"] == "🔥 SQUEEZE"]
-  if filter_inside:
-    filtered = filtered[filtered["Monthly Strat"] == "1 (Inside Coil)"]
-  if filter_ftc:
-    filtered = filtered[filtered["Monthly FTC"] == "Bullish 🟢"]
 
   filtered = filtered.sort_values(
       by=["Tier", "Score"], ascending=[True, False]
@@ -676,7 +756,7 @@ if not df.empty:
 
   c1, c2, c3, c4 = st.columns(4)
   with c1:
-    st.metric("Filtered Candidates", len(filtered))
+    st.metric("Monthly Candidates", len(filtered))
   with c2:
     st.metric(
         "🏆 Prime Tier 1 Setups",
@@ -684,14 +764,14 @@ if not df.empty:
     )
   with c3:
     st.metric(
-        "🐢 Tier 2 Clunkers",
-        len(filtered[filtered["Tier"] == "🐢 Tier 2 (Slow Clunker)"]),
+        "⚡ Weekly 1-Bars Coiling",
+        len(filtered[filtered["Weekly Strat"] == "1 (Inside Coil)"]),
     )
   with c4:
     st.metric(
-        "⚠️ Tier 3 Cyclical Traps",
-        len(filtered[filtered["Tier"] == "⚠️ Tier 3 (Cyclical Trap)"]),
+        "🔥 Active Squeezes", len(filtered[filtered["Squeeze"] == "🔥 SQUEEZE"])
     )
+
 
   def style_breakout_table(val, col_type):
     if col_type == "tier":
@@ -760,6 +840,7 @@ if not df.empty:
       return "background-color: rgba(255, 82, 82, 0.20); color: #FF5252;"
     return ""
 
+
   styled_df = (
       filtered.style.map(
           lambda v: style_breakout_table(v, "tier"), subset=["Tier"]
@@ -767,32 +848,32 @@ if not df.empty:
       .map(lambda v: style_breakout_table(v, "score"), subset=["Score"])
       .map(
           lambda v: style_breakout_table(v, "pegy"),
-          subset=["Lynch PEGY", "Standard PEG"],
+          subset=["Lynch PEGY"],
       )
       .map(lambda v: style_breakout_table(v, "squeeze"), subset=["Squeeze"])
-      .map(lambda v: style_breakout_table(v, "strat"), subset=["Monthly Strat"])
+      .map(lambda v: style_breakout_table(v, "strat"), subset=["Weekly Strat"])
       .map(lambda v: style_breakout_table(v, "ftc"), subset=["Monthly FTC"])
       .format(
           {
               "Price": "${:.2f}",
+              "OTM Long Strike": "${:.2f}",
+              "OTM Short Strike": "${:.2f}",
               "EPS Velocity (%)": "{:.1f}%",
               "Lynch PEGY": "{:.2f}",
-              "Standard PEG": "{:.2f}",
-              "Yield (%)": "{:.2f}%",
               "Beta": "{:.2f}",
           },
           na_rep="-",
       )
   )
 
-  st.subheader("📊 Trade Tier Intelligence Radar")
+  st.subheader("📊 Monthly OTM Breakout Radar (21–35 DTE Engine)")
   st.dataframe(styled_df, use_container_width=True, height=520)
 
   # =========================================================================
-  # SINGLE TICKER DEEP-DIVE DOSSIER SECTION
+  # SINGLE TICKER OTM DEBIT SPREAD DOSSIER
   # =========================================================================
   st.markdown("---")
-  st.subheader("🔎 Single Ticker Intelligence Dossier & Trade Playbook")
+  st.subheader("🔎 OTM Vertical Debit Blueprint & Execution Parameters")
 
   col_sel1, col_sel2 = st.columns([2, 1])
   with col_sel1:
@@ -800,7 +881,8 @@ if not df.empty:
         filtered["Ticker"].tolist() if not filtered.empty else universe_list
     )
     selected_ticker = st.selectbox(
-        "Select a Scanned Candidate for Instant Dossier:", dropdown_options
+        "Select a Candidate for Instant OTM Trade Architecture:",
+        dropdown_options,
     )
   with col_sel2:
     custom_lookup = (
@@ -813,243 +895,46 @@ if not df.empty:
 
   active_t = custom_lookup if custom_lookup else selected_ticker
 
-  if active_t:
-    if active_t in deep_dive_data:
-      dossier = deep_dive_data[active_t]
-    else:
-      with st.spinner(
-          f"Generating on-demand intelligence dossier for {active_t}..."
-      ):
-        tk = yf.Ticker(active_t)
-        h_d = tk.history(period="1y", interval="1d")
-        h_m = tk.history(period="2y", interval="1mo")
-        info = tk.info or {}
-        if not h_d.empty and not h_m.empty:
-          c_p = h_d["Close"].iloc[-1]
-          s50 = h_d["Close"].rolling(50).mean().iloc[-1]
-          s200 = (
-              h_d["Close"].rolling(200).mean().iloc[-1]
-              if len(h_d) >= 200
-              else s50
-          )
-          e21 = h_d["Close"].ewm(span=21, adjust=False).mean().iloc[-1]
-          f_pe = info.get("forwardPE", np.nan)
-          t_pe = info.get("trailingPE", np.nan)
-          p_peg = info.get("pegRatio", np.nan)
-          r_yield = info.get("dividendYield") or 0.0
-          d_yield = r_yield * 100.0 if r_yield < 0.20 else r_yield
-          pe_val = f_pe if pd.notnull(f_pe) and f_pe > 0 else t_pe
+  if active_t and active_t in deep_dive_data:
+    dossier = deep_dive_data[active_t]
+    st.markdown(f"### 📋 Trade Blueprint: **{dossier['name']} ({active_t})**")
+    st.markdown(
+        f"**Classification:** `{dossier['tier']}` —"
+        f" *{dossier['tier_reason']}* | **30-Day Expected Move (1 SD):**"
+        f" `±${dossier['em_30d']:.2f}` (`{dossier['hist_vol']:.1f}% IV Proxy`)"
+    )
 
-          imp_gr = (
-              pe_val / p_peg
-              if (pd.notnull(p_peg) and p_peg > 0 and pd.notnull(pe_val))
-              else np.nan
-          )
-          l_pegy = (
-              pe_val / (imp_gr + d_yield)
-              if (pd.notnull(imp_gr) and (imp_gr + d_yield) > 0)
-              else np.nan
-          )
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1:
+      st.metric("Current Price", f"${dossier['price']:.2f}")
+    with k2:
+      st.metric("Long Strike (~42 Δ)", f"${dossier['long_strike']:.2f}")
+    with k3:
+      st.metric("Short Strike (~22 Δ)", f"${dossier['short_strike']:.2f}")
+    with k4:
+      st.metric("Est. Prob of Touch", f"{dossier['prob_touch']}%")
+    with k5:
+      st.metric("Weekly Strat", dossier['weekly_strat'])
 
-          cur_m = h_m.iloc[-1]
-          pr_m = h_m.iloc[-2]
-          f_up = cur_m["Close"] > cur_m["Open"]
-          ins = (cur_m["High"] <= pr_m["High"]) and (cur_m["Low"] >= pr_m["Low"])
-          st_pat = (
-              "1 (Inside Coil)"
-              if ins
-              else (
-                  "2U (Continuation)"
-                  if cur_m["High"] > pr_m["High"]
-                  else "2D (Pullback)"
-              )
-          )
+    c_ex1, c_ex2 = st.columns(2)
+    with c_ex1:
+      st.markdown("#### ⚡ Asymmetric OTM Debit Setup (20–35 DTE)")
+      spread_w = dossier['short_strike'] - dossier['long_strike']
+      max_cost = spread_w * 0.32
+      max_p = spread_w - max_cost
+      st.markdown(f"""
+            * **Structure:** Buy +1 **${dossier['long_strike']:.2f} Call** / Sell -1 **${dossier['short_strike']:.2f} Call**
+            * **Target Expiration:** 21 to 35 DTE (Next monthly expiration cycle)
+            * **Spread Width:** **${spread_w:.2f}**
+            * **Target Cost Basis ($\le$ 32% of width):** **$\le ${max_cost:.2f} Debit**
+            * **Max Profit Potential:** **${max_p:.2f}** per contract (**~{max_p / max_cost * 100:.0f}% ROI**)
+            * **Why it Works:** You risk a small amount of capital ($\approx 30\%$ of width) for a 2:1 or 3:1 payout if momentum triggers out of the weekly compression bar.
+            """)
 
-          bb_m = h_d["Close"].rolling(20).mean()
-          bb_s = h_d["Close"].rolling(20).std()
-          b_u = bb_m + (2 * bb_s)
-          b_l = bb_m - (2 * bb_s)
-          tr_s = pd.concat([
-              h_d["High"] - h_d["Low"],
-              (h_d["High"] - h_d["Close"].shift(1)).abs(),
-              (h_d["Low"] - h_d["Close"].shift(1)).abs(),
-          ],
-                           axis=1).max(axis=1)
-          k_u = bb_m + (1.5 * tr_s.rolling(20).mean())
-          k_l = bb_m - (1.5 * tr_s.rolling(20).mean())
-          is_sq = bool(
-              (b_l.iloc[-1] > k_l.iloc[-1]) and (b_u.iloc[-1] < k_u.iloc[-1])
-          )
-
-          dossier = {
-              "name": info.get("shortName", active_t),
-              "tier": (
-                  "🏆 Tier 1 (Prime Setup)"
-                  if pd.notnull(l_pegy) and l_pegy <= 1.1
-                  else "🐢 Tier 2 (Slow Clunker)"
-              ),
-              "tier_reason": "On-Demand Screen",
-              "price": c_p,
-              "pe": pe_val,
-              "peg": p_peg,
-              "pegy": l_pegy,
-              "yield": d_yield,
-              "velocity": imp_gr,
-              "score": 80,
-              "strat": st_pat,
-              "ftc": "Bullish 🟢" if f_up else "Bearish 🔴",
-              "squeeze": is_sq,
-              "sma50": s50,
-              "sma200": s200,
-              "ema21": e21,
-              "beta": info.get("beta", 1.0),
-              "payout": (info.get("payoutRatio") or 0.0) * 100.0,
-              "profit_margins": (info.get("profitMargins") or 0.0) * 100.0,
-              "fcf": info.get("freeCashflow", 0),
-              "sector": info.get("sector", "Other"),
-              "industry": info.get("industry", ""),
-              "prior_m_high": pr_m["High"],
-              "prior_m_low": pr_m["Low"],
-              "curr_m_open": cur_m["Open"],
-          }
-        else:
-          dossier = None
-
-    if dossier:
-      st.markdown(
-          f"### 📋 Institutional Dossier: **{dossier['name']} ({active_t})**"
-      )
-      st.markdown(
-          f"**Classification:** `{dossier['tier']}` —"
-          f" *{dossier['tier_reason']}* | **Sector:** `{dossier['sector']}`"
-          f" ({dossier['industry']})"
-      )
-
-      kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
-      with kpi1:
-        st.metric("Current Price", f"${dossier['price']:.2f}")
-      with kpi2:
-        pegy_str = (
-            f"{dossier['pegy']:.2f}" if pd.notnull(dossier['pegy']) else "-"
-        )
-        st.metric(
-            "Lynch PEGY",
-            pegy_str,
-            delta=(
-                "Bargain (<1.0)"
-                if pd.notnull(dossier['pegy']) and dossier['pegy'] < 1.0
-                else "Stretched"
-            ),
-            delta_color="normal",
-        )
-      with kpi3:
-        peg_str = f"{dossier['peg']:.2f}" if pd.notnull(dossier['peg']) else "-"
-        st.metric("Standard PEG", peg_str)
-      with kpi4:
-        velo_str = (
-            f"{dossier['velocity']:.1f}%"
-            if pd.notnull(dossier['velocity'])
-            else "-"
-        )
-        st.metric("EPS Velocity", velo_str)
-      with kpi5:
-        sq_disp = "🔥 In Squeeze" if dossier['squeeze'] else "Standard"
-        st.metric("Volatility Squeeze", sq_disp)
-
-      tab_exec, tab_strat, tab_fund = st.tabs([
-          "🎯 Tactical Options Architecture",
-          "📐 Multi-Timeframe Strat Geometry",
-          "🏦 Fundamentals & Cash Conversion",
-      ])
-
-      with tab_exec:
-        c_ex1, c_ex2 = st.columns(2)
-        with c_ex1:
-          st.markdown("#### ⚡ Recommended Execution Architecture")
-          if "Tier 1" in dossier['tier']:
-            st.success(
-                "🟢 **Green Light for Defined-Risk In-Out Spread (60–90 DTE)**"
-            )
-            st.markdown(f"""
-                        * **Trade Vehicle:** In-Out Call Debit Spread (Vertical)
-                        * **Target Expiration:** 60 to 90 DTE (Capture full quarterly cycle)
-                        * **Optimal Strike Placement:**
-                          * **Buy Long Call:** ~65 Delta strike (Approx. **${dossier['price'] * 0.96:.2f}**)
-                          * **Sell Short Call:** ~35 Delta strike (Approx. **${dossier['price'] * 1.06:.2f}**)
-                        * **Target Cost Basis:** $\le$ 50% of the total spread width.
-                        * **Theoretical Edge:** Greek neutralization against implied volatility crush while earnings momentum drives directional delta.
-                        """)
-          elif "Tier 3" in dossier['tier']:
-            st.error("🔴 **Stand Aside / Execution Trap**")
-            st.markdown(
-                "• Commodity price-taker risk detected. Spot commodities must"
-                " confirm prior to taking directional positions."
-            )
-          else:
-            st.warning("🟡 **Tier 2 Clunker (Slow Move Warning)**")
-            st.markdown(
-                "• EPS velocity is sluggish; options premium may suffer from"
-                " theta decay before price reaches upper targets."
-            )
-
-        with c_ex2:
-          st.markdown("#### 🛑 Invalidation & Risk Parameters")
-          st.markdown(f"""
-                    * **Daily Invalidation Stop:** Daily closing candle below 21 EMA (**${dossier['ema21']:.2f}**) or 50 SMA (**${dossier['sma50']:.2f}**).
-                    * **Monthly Pattern Invalidation:** Price prints below prior month's low (**${dossier['prior_m_low']:.2f}**).
-                    * **Breakout Trigger Level:** Daily close above prior month's high (**${dossier['prior_m_high']:.2f}**).
-                    * **Profit Harvest Rule:** Close 50% of the position when the spread reaches 75% of maximum profit.
-                    """)
-
-      with tab_strat:
-        st.markdown("#### 📐 The Strat Higher-Timeframe Geometry")
-        cs1, cs2, cs3 = st.columns(3)
-        with cs1:
-          st.metric("Monthly Candle Pattern", dossier['strat'])
-          st.caption(
-              "1 = Inside equilibrium coil | 2U = Directional continuation | 2D"
-              " = Failed breakdown"
-          )
-        with cs2:
-          st.metric("Full Timeframe Continuity (FTC)", dossier['ftc'])
-          st.caption(
-              "Current month trading relative to open:"
-              f" ${dossier['curr_m_open']:.2f}"
-          )
-        with cs3:
-          st.metric(
-              "Daily Moving Average Stack",
-              "Bullish Stack"
-              if dossier['price'] > dossier['ema21'] > dossier['sma50']
-              else "Mixed",
-          )
-          st.caption(
-              f"21 EMA: ${dossier['ema21']:.2f} | 50 SMA:"
-              f" ${dossier['sma50']:.2f} | 200 SMA: ${dossier['sma200']:.2f}"
-          )
-
-      with tab_fund:
-        st.markdown("#### 🏦 Balance Sheet & Cash Quality Check")
-        cf1, cf2, cf3, cf4 = st.columns(4)
-        with cf1:
-          st.metric(
-              "Forward / Trailing P/E",
-              (
-                  f"{dossier['pe']:.1f}x"
-                  if pd.notnull(dossier['pe'])
-                  else "-"
-              ),
-          )
-        with cf2:
-          st.metric(
-              "Dividend Yield & Payout",
-              f"{dossier['yield']:.2f}%",
-              f"{dossier['payout']:.1f}% Payout",
-          )
-        with cf3:
-          st.metric("Net Profit Margin", f"{dossier['profit_margins']:.1f}%")
-        with cf4:
-          fcf_billions = dossier['fcf'] / 1e9 if dossier['fcf'] else 0.0
-          st.metric("Trailing Free Cash Flow", f"${fcf_billions:.2f}B")
-    else:
-      st.error(f"Could not load data for '{active_t}'. Verify ticker symbol.")
+    with c_ex2:
+      st.markdown("#### 🛑 Trade Management & Exit Rules")
+      st.markdown(f"""
+            * **Take-Profit Rule (Harvest at 100%–120% ROI):** When price hits or exceeds the Long Strike (**${dossier['long_strike']:.2f}**), implied volatility expansion will boost the spread. Take profit at **${max_cost * 2.1:.2f}**; do not wait until expiration Friday.
+            * **Stop-Loss / Invalidation:** Close if the underlying price closes below the rising **Daily 8 EMA (${dossier['ema8']:.2f})** or prior week's low (**${dossier['prev_w_low']:.2f}**).
+            * **Time Stop:** If price chops sideways for 10 trading days with no expansion, exit at 50% loss to preserve capital.
+            """)
