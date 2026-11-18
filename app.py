@@ -1,9 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import datetime
+import math
 import numpy as np
 import pandas as pd
-from scipy.optimize import brentq
-from scipy.stats import norm
 import streamlit as st
 import yfinance as yf
 
@@ -36,48 +35,56 @@ METALS_MINERS = [
 
 
 # =============================================================================
-# VERIFIED LOGNORMAL FIRST-PASSAGE BARRIER MATH
+# VERIFIED LOGNORMAL FIRST-PASSAGE BARRIER MATH (ZERO SCIPY DEPENDENCY)
 # =============================================================================
+def _norm_cdf(x):
+    """Exact standard normal CDF using Python's built-in math.erf."""
+    return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
+
+
 def exact_touch_prob(spot, barrier, sigma, t_years, r=0.0425):
     """Exact analytical First-Passage Probability of Touch under GBM with drift."""
     if barrier == spot or t_years <= 0 or sigma <= 0:
         return 1.0
     mu = r - 0.5 * (sigma ** 2)
-    sig_sqrt_t = sigma * np.sqrt(t_years)
+    sig_sqrt_t = sigma * math.sqrt(t_years)
     if barrier > spot:
-        ln_ratio = np.log(barrier / spot)
+        ln_ratio = math.log(barrier / spot)
         d1 = (-ln_ratio + mu * t_years) / sig_sqrt_t
         d2 = (-ln_ratio - mu * t_years) / sig_sqrt_t
         power = (2.0 * mu) / (sigma ** 2)
-        prob = norm.cdf(d1) + ((barrier / spot) ** power) * norm.cdf(d2)
+        prob = _norm_cdf(d1) + ((barrier / spot) ** power) * _norm_cdf(d2)
     else:
-        ln_ratio = np.log(spot / barrier)
+        ln_ratio = math.log(spot / barrier)
         d1 = (-ln_ratio - mu * t_years) / sig_sqrt_t
         d2 = (-ln_ratio + mu * t_years) / sig_sqrt_t
         power = (2.0 * mu) / (sigma ** 2)
-        prob = norm.cdf(d1) + ((barrier / spot) ** power) * norm.cdf(d2)
+        prob = _norm_cdf(d1) + ((barrier / spot) ** power) * _norm_cdf(d2)
     return float(np.clip(prob, 0.0, 1.0))
 
 
 def solve_barrier_for_prob(spot, target_prob, sigma, t_years, direction="UP", r=0.0425):
-    """Solves exact barrier level with `target_prob` of being touched over `t_years`."""
+    """Exact bisection solver for target touch probability (no scipy needed)."""
     try:
         if direction == "UP":
-            return float(
-                brentq(
-                    lambda b: exact_touch_prob(spot, b, sigma, t_years, r) - target_prob,
-                    spot * 1.0001,
-                    spot * 5.0,
-                )
-            )
+            low, high = spot * 1.0001, spot * 5.0
         else:
-            return float(
-                brentq(
-                    lambda b: exact_touch_prob(spot, b, sigma, t_years, r) - target_prob,
-                    spot * 0.05,
-                    spot * 0.9999,
-                )
-            )
+            low, high = spot * 0.05, spot * 0.9999
+
+        for _ in range(60):
+            mid = 0.5 * (low + high)
+            p_mid = exact_touch_prob(spot, mid, sigma, t_years, r)
+            if direction == "UP":
+                if p_mid > target_prob:
+                    low = mid
+                else:
+                    high = mid
+            else:
+                if p_mid > target_prob:
+                    high = mid
+                else:
+                    low = mid
+        return float(0.5 * (low + high))
     except Exception:
         return spot
 
@@ -246,7 +253,6 @@ def run_scan(tickers):
             sma50 = float(close_d.rolling(50).mean().iloc[-1])
             sma50_prev = float(close_d.rolling(50).mean().iloc[-10])
             sma200 = float(close_d.rolling(200).mean().iloc[-1]) if len(d) >= 200 else sma50
-            sma200_prev = float(close_d.rolling(200).mean().iloc[-20]) if len(d) >= 220 else sma200
             ema8 = float(close_d.ewm(span=8, adjust=False).mean().iloc[-1])
             ema21 = float(close_d.ewm(span=21, adjust=False).mean().iloc[-1])
 
@@ -563,7 +569,7 @@ tab_equity, tab_otm, tab_preflight = st.tabs([
 
 
 # -----------------------------------------------------------------------------
-# TAB 1 (NEW): CORE EQUITY STOCK PICKER (COMMON SHARES ONLY — ZERO EXPIRATION)
+# TAB 1: CORE EQUITY STOCK PICKER (COMMON SHARES ONLY — ZERO EXPIRATION)
 # -----------------------------------------------------------------------------
 with tab_equity:
     st.title("🏛️ Core Equity Stock Picker (GARP + Institutional Trend)")
@@ -606,7 +612,6 @@ with tab_equity:
         eq_df["PEGY_num"] = pd.to_numeric(eq_df["Lynch PEGY"], errors="coerce")
         eq_df["Vel_num"] = pd.to_numeric(eq_df["EPS Velocity (%)"], errors="coerce")
 
-        # Apply GARP + Trend filters
         eq_filtered = eq_df[
             (eq_df["PEGY_num"].notna())
             & (eq_df["PEGY_num"] > 0)
@@ -682,7 +687,6 @@ with tab_equity:
         if target_sym and target_sym in deep_dive_data:
             rec = deep_dive_data[target_sym]
             entry_px = rec["price"]
-            # Use the tighter of 80% Downside Barrier or 50-Day SMA as structural stop
             stop_px = round(min(rec["down_80_floor"], entry_px * 0.96), 2)
             risk_per_share = max(entry_px - stop_px, 0.25)
             max_dollar_risk = acct_size * (risk_pct / 100.0)
